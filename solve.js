@@ -12,9 +12,27 @@ const byCodeUnits = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
-/** HTML escape (regex replace; called on whole runs, not per character). */
+/** HTML escape: single pass, no regex, no allocation when clean. */
 function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, (c) => ESCAPES[c]);
+  let out = '';
+  let last = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    let rep = null;
+    if (c === 38) rep = '&amp;';
+    else if (c === 60) rep = '&lt;';
+    else if (c === 62) rep = '&gt;';
+    else if (c === 34) rep = '&quot;';
+    else if (c === 39) rep = '&#39;';
+    if (rep !== null) {
+      if (last < i) out += s.slice(last, i);
+      out += rep;
+      last = i + 1;
+    }
+  }
+  if (last === 0) return s;
+  if (last < s.length) out += s.slice(last);
+  return out;
 }
 
 const SLUG_MAX = 64;
@@ -23,10 +41,18 @@ const slugCache = new Map();
 function slugify(text) {
   const hit = slugCache.get(text);
   if (hit !== undefined) return hit;
-  const plain = text.normalize('NFKD').replace(/\p{M}/gu, '');
+  let plain = text;
+  // ASCII fast path: most titles are pure ASCII; skip NFKD + combining-mark
+  // regex entirely for them.
+  let ascii = true;
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) > 127) { ascii = false; break; }
+  }
+  if (!ascii) plain = text.normalize('NFKD').replace(/\p{M}/gu, '');
   let out = '';
   let gap = false;
-  for (const ch of plain) {
+  for (let i = 0; i < plain.length; i++) {
+    const ch = plain[i];
     let keep = null;
     if (ch >= 'A' && ch <= 'Z') keep = ch.toLowerCase();
     else if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')) keep = ch;
